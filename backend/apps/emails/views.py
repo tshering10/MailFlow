@@ -1,6 +1,5 @@
 # emails/views.py
 from django.utils import timezone
-from .tasks import send_email_task
 from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -8,6 +7,7 @@ from rest_framework import status
 from .models import EmailSchedule, Status
 from .serializers import EmailScheduleSerializer
 from celery import current_app
+from .tasks import send_email_task, notify_user
 
 class EmailScheduleViewSet(viewsets.ModelViewSet):
     serializer_class = EmailScheduleSerializer
@@ -30,17 +30,20 @@ class EmailScheduleViewSet(viewsets.ModelViewSet):
         email.status = Status.QUEUED
         email.save(update_fields=['celery_task_id', 'status'])
 
+        # Notify connected websocket clients that the email has been scheduled
+        notify_user(email.created_by_id, email.id, Status.QUEUED)
+
     def perform_destroy(self, instance):
         """
         Cleans up background resources when a schedule is deleted.
         If the email is still pending execution, revoke it from Celery.
         """
-         # If the email is active (PENDING/QUEUED) and has a task ID, revoke it from Celery queue
-        if instance.status in [Status.PENDING, Status.QUEUED] and instance.celery.task_id:
-            current_app.cotrol.revoke(instance.celery_task_id, terminate=True)
+        # If the email is active (PENDING/QUEUED) and has a task ID, revoke it from Celery queue
+        if instance.status in [Status.PENDING, Status.QUEUED] and instance.celery_task_id:
+            current_app.control.revoke(instance.celery_task_id, terminate=True)
 
-             # Delete the email record from the database (always executed)
-            instance.delete()
+        # Delete the email record from the database
+        instance.delete()
 
     @action(detail=True, methods=['POST'])
     def cancel(self, request, pk=None):
@@ -57,14 +60,17 @@ class EmailScheduleViewSet(viewsets.ModelViewSet):
         if email.celery_task_id:
             current_app.control.revoke(email.celery_task_id, terminate=True)
 
-             # Always update status to CANCELLED in DB
-            email.status = Status.CANCELLED
-            email.save(update_fields=['status'])
+        # Always update status to CANCELLED in DB
+        email.status = Status.CANCELLED
+        email.save(update_fields=['status'])
 
-            return Response(
-                {"message": "Email schedule has been cancelled successfully."},
-                status=status.HTTP_200_OK
-            )
+        # Notify connected websocket clients immediately
+        notify_user(email.created_by_id, email.id, Status.CANCELLED)
+
+        return Response(
+            {"message": "Email schedule has been cancelled successfully."},
+            status=status.HTTP_200_OK
+        )
 
     @action(detail=True, methods=['POST'])
     def resend(self, request, pk=None):
@@ -93,6 +99,9 @@ class EmailScheduleViewSet(viewsets.ModelViewSet):
         email.sent_at = None
         email.error_message = None
         email.save(update_fields=['status', 'celery_task_id', 'scheduled_at', 'sent_at', 'error_message'])
+
+        # Notify connected websocket clients that the email has been re-queued
+        notify_user(email.created_by_id, email.id, Status.QUEUED)
 
         #return updated email schedule object
         serializer = self.get_serializer(email)

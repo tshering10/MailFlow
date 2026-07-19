@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'apps.emails',
     'apps.users',
+    'channels',
     
 ]
 
@@ -81,8 +82,8 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'config.wsgi.application'
-
+#WSGI_APPLICATION = 'config.wsgi.application'
+ASGI_APPLICATION = "config.asgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
@@ -175,3 +176,16 @@ SIMPLE_JWT = {
 
 # Email Configuration for Development (prints to console)
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+#Django Channels
+CHANNEL_LAYERS = {
+    'default': {
+        "BACKEND":
+        "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts":
+            [os.environ.get('CELERY_BROKER_URL',
+            "redis://localhost:6379/0")],
+        },
+    },
+}
