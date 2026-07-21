@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from .models import ActivityLog
 
 User = get_user_model()
 
@@ -27,3 +28,12 @@ class UserRegisterSerializer(serializers.ModelSerializer):
             password=validated_data['password']
         )
         return user
+
+class ActivityLogSerializer(serializers.ModelSerializer):
+    email_subject = serializers.CharField(source='email.subject', read_only=True, default=None)
+    
+    class Meta:
+        model = ActivityLog
+        fields = ['id', 'email', 'email_subject', 'action', 'description', 'timestamp']
+        read_only_fields = fields
+

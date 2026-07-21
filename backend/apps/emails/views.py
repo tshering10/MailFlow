@@ -3,15 +3,21 @@ from django.utils import timezone
 from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, filters
+from django_filters.rest_framework import DjangoFilterBackend
 from .models import EmailSchedule, Status
 from .serializers import EmailScheduleSerializer
 from celery import current_app
 from .tasks import send_email_task, notify_user
+from apps.users.models import ActivityAction, ActivityLog
 
 class EmailScheduleViewSet(viewsets.ModelViewSet):
     serializer_class = EmailScheduleSerializer
     permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['status']
+    search_fields = ['subject', 'recipient_email']
+    ordering_fields = ['created_at', 'scheduled_at', 'status']
 
     def get_queryset(self):
         return EmailSchedule.objects.filter(created_by=self.request.user).order_by('-created_at')
@@ -30,6 +36,13 @@ class EmailScheduleViewSet(viewsets.ModelViewSet):
         email.status = Status.QUEUED
         email.save(update_fields=['celery_task_id', 'status'])
 
+        ActivityLog.objects.create(
+            user=email.created_by,
+            email=email,
+            action=ActivityAction.CREATED,
+            description=f"Scheduled email to {email.recipient}"
+        )
+
         # Notify connected websocket clients that the email has been scheduled
         notify_user(email.created_by_id, email.id, Status.QUEUED)
 
@@ -42,6 +55,12 @@ class EmailScheduleViewSet(viewsets.ModelViewSet):
         if instance.status in [Status.PENDING, Status.QUEUED] and instance.celery_task_id:
             current_app.control.revoke(instance.celery_task_id, terminate=True)
 
+        ActivityLog.objects.create(
+            user=instance.created_by,
+            email=instance,
+            action=ActivityAction.DELETED,
+            description=f"Deleted scheduled email to {instance.recipient}"
+        )
         # Delete the email record from the database
         instance.delete()
 
@@ -63,6 +82,14 @@ class EmailScheduleViewSet(viewsets.ModelViewSet):
         # Always update status to CANCELLED in DB
         email.status = Status.CANCELLED
         email.save(update_fields=['status'])
+
+        ActivityLog.objects.create(
+            user=email.created_by,
+            email=email,
+            action=ActivityAction.CANCELLED,
+            description=f"Cancelled scheduled email to {email.recipient}"
+        )
+
 
         # Notify connected websocket clients immediately
         notify_user(email.created_by_id, email.id, Status.CANCELLED)
@@ -99,6 +126,13 @@ class EmailScheduleViewSet(viewsets.ModelViewSet):
         email.sent_at = None
         email.error_message = None
         email.save(update_fields=['status', 'celery_task_id', 'scheduled_at', 'sent_at', 'error_message'])
+
+        ActivityLog.objects.create(
+            user=email.created_by,
+            email=email,
+            action=ActivityAction.RESENT,
+            description=f"Resent email to {email.recipient}"
+        )
 
         # Notify connected websocket clients that the email has been re-queued
         notify_user(email.created_by_id, email.id, Status.QUEUED)
