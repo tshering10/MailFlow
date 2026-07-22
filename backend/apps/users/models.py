@@ -23,10 +23,10 @@ class User(AbstractUser):
 class ActivityLog(models.Model):
     email = models.ForeignKey(
         'emails.EmailSchedule',
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name="activities", null=True, blank=True
     )
-
+    email_subject = models.CharField(max_length=255)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
         related_name="activities"
     )
@@ -42,5 +42,4 @@ class ActivityLog(models.Model):
         ordering = ["-timestamp"]
 
     def __str__(self):
-        subject = self.email.subject if self.email else "No Subject"
-        return f"{self.action} - {subject}"
+        return f"{self.action} - {self.email_subject}"

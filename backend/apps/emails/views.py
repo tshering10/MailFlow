@@ -16,7 +16,7 @@ class EmailScheduleViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['status']
-    search_fields = ['subject', 'recipient_email']
+    search_fields = ['subject', 'recipient']
     ordering_fields = ['created_at', 'scheduled_at', 'status']
 
     def get_queryset(self):
@@ -39,6 +39,7 @@ class EmailScheduleViewSet(viewsets.ModelViewSet):
         ActivityLog.objects.create(
             user=email.created_by,
             email=email,
+            email_subject=email.subject,
             action=ActivityAction.CREATED,
             description=f"Scheduled email to {email.recipient}"
         )
@@ -54,10 +55,11 @@ class EmailScheduleViewSet(viewsets.ModelViewSet):
         # If the email is active (PENDING/QUEUED) and has a task ID, revoke it from Celery queue
         if instance.status in [Status.PENDING, Status.QUEUED] and instance.celery_task_id:
             current_app.control.revoke(instance.celery_task_id, terminate=True)
-
+        
         ActivityLog.objects.create(
             user=instance.created_by,
             email=instance,
+            email_subject=instance.subject,
             action=ActivityAction.DELETED,
             description=f"Deleted scheduled email to {instance.recipient}"
         )
@@ -86,6 +88,7 @@ class EmailScheduleViewSet(viewsets.ModelViewSet):
         ActivityLog.objects.create(
             user=email.created_by,
             email=email,
+            email_subject=email.subject,
             action=ActivityAction.CANCELLED,
             description=f"Cancelled scheduled email to {email.recipient}"
         )
@@ -130,6 +133,7 @@ class EmailScheduleViewSet(viewsets.ModelViewSet):
         ActivityLog.objects.create(
             user=email.created_by,
             email=email,
+            email_subject=email.subject,
             action=ActivityAction.RESENT,
             description=f"Resent email to {email.recipient}"
         )

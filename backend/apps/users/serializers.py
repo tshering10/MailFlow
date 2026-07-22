@@ -30,7 +30,6 @@ class UserRegisterSerializer(serializers.ModelSerializer):
         return user
 
 class ActivityLogSerializer(serializers.ModelSerializer):
-    email_subject = serializers.CharField(source='email.subject', read_only=True, default=None)
     
     class Meta:
         model = ActivityLog
